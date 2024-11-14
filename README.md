@@ -1,4 +1,4 @@
-# Orange Hoops Data Science Comtest
+# Orange Hoops Data Science Contest
 
 This project uses NCAA Men’s Basketball data from the 2023-2024 season to recommend the optimal player for Purdue Men’s Basketball to take the final shot in clutch game situations. Through machine learning and data analysis, the project identifies **Zach Edey** as the player with the highest success probability under high-pressure conditions. The analysis is based on key game variables and situational predictors, including time remaining, score difference, and win probability.
 
