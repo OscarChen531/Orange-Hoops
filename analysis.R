@@ -1,38 +1,3 @@
-library(glmnet)
-library(caret)
-library(Matrix)
-library(dplyr)
-library(tidyverse)
-library(ggplot2)
-library(corrplot)
-library(readr)
-library(Metrics)
-library(pROC)
-library(pls)  # For PLSR and PCR models
-
-
-# Load and filter data
-performance <- read.csv("Data/PBP2324.csv", sep = ",", header = TRUE)
-
-# Define clutch time: last 5 minutes of the second half with score difference between -5 and 5
-clutch_data <- performance %>%
-  filter(
-    half == 2,
-    secs_remaining <= 300,
-    score_diff >= -5 & score_diff <= 5,
-    shot_team == "Purdue"  # Filter for shots made by Purdue
-  )
-
-# Drop rows with any NA values in relevant columns for modeling
-clutch_data <- clutch_data %>%
-  drop_na(secs_remaining, score_diff, shot_outcome, shooter, three_pt, free_throw, possession_before, possession_after, win_prob)
-
-# Create shot success as the outcome variable
-clutch_data$shot_success <- ifelse(clutch_data$shot_outcome == "made", 1, 0)
-
-# Display data structure
-str(clutch_data)
-
 # Plot the shot success rate per shooter
 ggplot(clutch_data, aes(x = shooter, fill = as.factor(shot_success))) +
   geom_bar(position = "fill") +
@@ -101,6 +66,26 @@ featurePlot(
   main = "Feature Plot of Predictors by Shot Success"
 )
 
+# Select predictors and the response variable
+predictors <- clutch_data %>%
+  select(score_diff, secs_remaining, attendance, naive_win_prob, 
+         home_favored_by, total_line, home_time_out_remaining, 
+         away_time_out_remaining, win_prob)
+
+predictors <- na.omit(predictors)
+
+# Compute the correlation matrix
+cor_matrix <- cor(predictors, use = "complete.obs")
+
+library(ggcorrplot)
+
+# Plot using ggcorrplot
+ggcorrplot(cor_matrix, lab = TRUE, colors = c("blue", "white", "red"))
+
+# Load necessary libraries
+library(caret)
+library(pROC)
+
 # Prepare Data
 # Filter out rows where shooter is Caleb Furst
 clutch_data <- subset(clutch_data, shooter != "Caleb Furst")
@@ -108,6 +93,9 @@ clutch_data <- subset(clutch_data, shooter != "Caleb Furst")
 # Ensure outcome variable and shooter are factors, rename levels for clarity
 clutch_data$shot_success <- factor(clutch_data$shot_success, levels = c(0, 1), labels = c("Fail", "Success"))
 clutch_data$shooter <- as.factor(clutch_data$shooter)
+clutch_data$referees <- as.factor(clutch_data$referees)
+clutch_data$arena <- as.factor(clutch_data$arena)
+
 
 # Remove any rows with missing values in the entire dataset
 clutch_data <- na.omit(clutch_data)
@@ -145,7 +133,8 @@ calculate_metrics <- function(model, test_data, positive_class = "Success") {
 # Specify predictor formula using the selected features
 predictors <- shot_success ~ score_diff + secs_remaining + attendance + naive_win_prob +
   home_favored_by + total_line + home_time_out_remaining +
-  away_time_out_remaining + win_prob + shooter
+  away_time_out_remaining + win_prob + 
+  shooter + referees + arena
 
 # Train Models and Calculate Metrics
 
@@ -202,89 +191,34 @@ results <- data.frame(
 
 print(results)
 
+
 # Normalize metrics for comparison
 results$Accuracy_norm <- results$Accuracy / max(results$Accuracy)
 results$AUC_norm <- results$AUC / max(results$AUC)
 results$F1_Score_norm <- results$F1_Score / max(results$F1_Score)
 
-# Assign weights for composite scoring (adjust these as needed)
-weight_accuracy <- 0.3
-weight_auc <- 0.4
-weight_f1 <- 0.3
+# Assign new weights
+weight_accuracy <- 0.25
+weight_auc <- 0.25
+weight_f1 <- 0.20
+weight_sensitivity <- 0.15
+weight_specificity <- 0.10
+weight_kappa <- 0.05
 
-# Calculate composite score
+# Calculate the new composite score
 results$Composite_Score <- (results$Accuracy_norm * weight_accuracy) + 
   (results$AUC_norm * weight_auc) + 
-  (results$F1_Score_norm * weight_f1)
+  (results$F1_Score_norm * weight_f1) +
+  (results$Sensitivity * weight_sensitivity) +
+  (results$Specificity * weight_specificity) +
+  (results$Kappa * weight_kappa)
 
-# Sort by Composite_Score to find the best model
+# Sort by the new composite score
 results <- results[order(-results$Composite_Score), ]
-print("Ranked Models by Composite Score:")
+print("Ranked Models by New Composite Score:")
 print(results)
 
 # Select the best model based on highest composite score
 best_model <- results[1, ]
 print("Best Model:")
 print(best_model)
-
-
-################################################################################
-# Load and filter data
-performance <- read.csv("Data/PBP2324.csv", sep = ",", header = TRUE)
-
-# Define clutch time: last 5 minutes of the second half with score difference between -5 and 5
-clutch_data <- performance %>%
-  filter(
-    half == 2,
-    secs_remaining <= 300,
-    score_diff >= -5 & score_diff <= 5,
-    shot_team == "Purdue"  # Filter for shots made by Purdue
-  )
-
-# Drop rows with any NA values in relevant columns for modeling
-clutch_data <- clutch_data %>%
-  drop_na(secs_remaining, score_diff, shot_outcome, shooter, three_pt, free_throw, possession_before, possession_after, win_prob)
-
-# Create shot success as the outcome variable
-clutch_data$shot_success <- ifelse(clutch_data$shot_outcome == "made", 1, 0)
-
-# Ensure outcome variable and shooter are factors
-clutch_data$shot_success <- factor(clutch_data$shot_success, levels = c(0, 1), labels = c("Fail", "Success"))
-clutch_data$shooter <- as.factor(clutch_data$shooter)
-
-# Remove rows with missing values
-clutch_data <- na.omit(clutch_data)
-
-# Check class distribution
-class_dist <- table(clutch_data$shot_success)
-if (any(class_dist == 0)) {
-  stop("Error: One of the classes (Fail or Success) has no records after filtering.")
-}
-
-# Split data into training and testing sets
-set.seed(123)
-trainIndex <- createDataPartition(clutch_data$shot_success, p = .8, list = FALSE)
-train_data <- clutch_data[trainIndex, ]
-test_data <- clutch_data[-trainIndex, ]
-
-# Define the formula for the SVM model
-predictors <- shot_success ~ score_diff + secs_remaining + attendance + naive_win_prob +
-  home_favored_by + total_line + home_time_out_remaining +
-  away_time_out_remaining + win_prob + shooter
-
-# Train the SVM model
-set.seed(123)
-svm_model <- train(predictors, data = train_data, method = "svmRadial", tuneLength = 10,
-                   trControl = trainControl(method = "cv", number = 5, classProbs = TRUE))
-
-# Calculate probabilities for each player in the test data
-test_data$predicted_prob <- predict(svm_model, test_data, type = "prob")[, "Success"]
-
-# Choose the player with the highest predicted probability in each game situation
-best_player_per_situation <- test_data %>%
-  group_by(score_diff) %>%  # Replace `score_diff` with the relevant identifier for each situation
-  filter(predicted_prob == max(predicted_prob)) %>%
-  select(shooter, predicted_prob) %>%
-  ungroup()
-
-print(best_player_per_situation)

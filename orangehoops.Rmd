@@ -1,13 +1,16 @@
 ---
-title: 'Orange Hoops: Player Performance'
+title: "Data-Driven Decision Making for Clutch-Time Shot Selection: Analyzing Player Performance Using Predictive Modeling"
 author: "Wei-Chieh Chen Peiya Qi Yash Gaikwad"
 date: "2024-11-13"
-output: html_document
+output:
+  pdf_document: default
+  html_document: default
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(glmnet)
+library(corrplot)
 library(caret)
 library(Matrix)
 library(dplyr)
@@ -34,7 +37,8 @@ clutch_data <- performance %>%
 
 # Drop rows with any NA values in relevant columns for modeling
 clutch_data <- clutch_data %>%
-  drop_na(secs_remaining, score_diff, shot_outcome, shooter, three_pt, free_throw, possession_before, possession_after, win_prob)
+  drop_na(secs_remaining, score_diff, shot_outcome, shooter, three_pt, 
+          free_throw, possession_before, possession_after, win_prob)
 
 # Create shot success as the outcome variable
 clutch_data$shot_success <- ifelse(clutch_data$shot_outcome == "made", 1, 0)
@@ -44,14 +48,17 @@ str(clutch_data)
 ```
 
 ## Abstract
-This project leverages NCAA Men’s Basketball data from the 2023-2024 season to identify Zach Edey as the optimal Purdue Men’s Basketball player for taking game-deciding shots during clutch moments. Clutch situations are defined as the last five minutes of the second half with a score differential within five points. Using an array of machine learning models, including Logistic Regression, Ridge Regression, Support Vector Machine (SVM), and ensemble methods, SVM emerged as the top-performing model, achieving 66.7% accuracy. The final SVM model recommends players for clutch scenarios, with Edey emerging as the top choice based on his consistently high shot success probabilities across various game situations.
+This project leverages NCAA Men’s Basketball data to identify the best Purdue player for taking critical shots in high-pressure moments. Focusing on the final five minutes of close games, the analysis considers factors like score difference, time remaining, and win probability to predict shot success. The Random Forest model emerged as the most effective predictor, accurately capturing the conditions linked to successful shots. Based on the model’s predictions, Zach Edey was identified as the optimal player for game-deciding moments, offering a data-driven approach to enhance strategic decision-making in pivotal basketball scenarios.
 
 ## Introduction
 In NCAA basketball, the final moments of close games are pivotal, and deciding which player should take the last shot can significantly impact the outcome. This study aims to offer a data-driven recommendation for the optimal player on the Purdue Men’s Basketball team to take a winning shot in high-pressure moments. By analyzing player performance under specific game conditions—such as time remaining, score differential, and possession—the project seeks to develop a reliable model to predict shot success during clutch situations. This model will ultimately provide actionable insights for in-game decision-making.
 
-## Data Preparation
+
+## Data Pre-Processing & Exploratory Data Analysis
+### Data Preparation
 Clutch-time data from the NCAA Men’s Basketball Division 1 2023-2024 season was filtered for analysis, focusing on situations in the final five minutes of the game where the score difference was within five points. Variables included score_diff, secs_remaining, win_prob, shooter, and others related to game conditions and player actions. The outcome variable, shot_success, was binary, marking each shot as "Success" or "Fail".
-```{r prepare}
+
+```{r prepare, echo=FALSE}
 # Define clutch time: last 10 minutes of the second half with score difference between -5 and 5
 clutch_data <- performance %>%
   filter(
@@ -69,17 +76,17 @@ clutch_data <- clutch_data %>%
 clutch_data$shot_success <- ifelse(clutch_data$shot_outcome == "made", 1, 0)
 
 # Display data structure
-str(clutch_data)
+# str(clutch_data)
 ```
-
-## Method & Result
 
 ### Exploratory Data Analysis
 The exploratory data analysis (EDA) provides visual insights into the factors influencing shot success under clutch conditions. The following visualizations were used to understand player performance and contextual factors:
 
 1. Distribution of Shot Success by Shooter:
+
 This bar plot shows the percentage of successful versus failed shots for each player. A higher proportion of success in any player's bar indicates a greater reliability in clutch situations. This plot helps to quickly assess individual players' shot success rates, which can guide decisions on which players are most effective in scoring under pressure.
-```{r explore}
+
+```{r explore, echo=FALSE}
 # Plot the shot success rate per shooter
 ggplot(clutch_data, aes(x = shooter, fill = as.factor(shot_success))) +
   geom_bar(position = "fill") +
@@ -90,8 +97,10 @@ ggplot(clutch_data, aes(x = shooter, fill = as.factor(shot_success))) +
 ```
 
 2. Distribution of Three-Point Shots and Free Throws:
+
 The plots for Three-Point Attempt Success Rate and Free Throw Success Rate provide insights into players’ strengths with specific types of shots. A high success rate in the three-point plot indicates a player who is effective from beyond the arc, while a high success rate in the free throw plot highlights players who are reliable at the line. This breakdown is useful for understanding which shot types maximize each player’s scoring potential.
-```{r explore2}
+
+```{r explore2, echo=FALSE}
 # Plot the distribution of three-point attempts and free throws
 ggplot(clutch_data, aes(x = three_pt, fill = as.factor(shot_success))) +
   geom_bar(position = "fill") +
@@ -107,8 +116,10 @@ ggplot(clutch_data, aes(x = free_throw, fill = as.factor(shot_success))) +
 ```
 
 3. Time Remaining and Shot Success:
+
 This scatter plot, with a trend line, shows how shot success probability changes as time counts down in the last five minutes of the game. If the trend line remains steady or increases, it indicates that players maintain or improve shot success as time decreases, showcasing resilience under time pressure. Conversely, a downward trend could indicate decreasing accuracy as pressure builds, suggesting time sensitivity in shot effectiveness.
-```{r explore3}
+
+```{r explore3, echo=FALSE}
 # Plot shot success over time remaining
 ggplot(clutch_data, aes(x = secs_remaining, y = shot_success, color = shooter)) +
   geom_point(alpha = 0.6) +
@@ -119,8 +130,10 @@ ggplot(clutch_data, aes(x = secs_remaining, y = shot_success, color = shooter)) 
 ```
 
 4. Shot Success by Score Difference:
+
 In this plot, shot success is analyzed against the score difference between teams. A consistent trend line across different score differences suggests that players’ shooting accuracy is stable regardless of the game’s competitiveness. A steep slope could imply that players perform differently based on the closeness of the game, either thriving under pressure or becoming less effective as games get tighter.
-```{r explore4}
+
+```{r explore4, echo=FALSE}
 # Plot shot success by score difference
 ggplot(clutch_data, aes(x = score_diff, y = shot_success, color = shooter)) +
   geom_point() +
@@ -130,10 +143,12 @@ ggplot(clutch_data, aes(x = score_diff, y = shot_success, color = shooter)) +
 ```
 
 5. Shot Success Rate by Game Situation:
+
 The Shot Success by Win Probability plot reveals how players perform relative to the predicted chances of their team winning. A stable trend here suggests that players’ effectiveness is independent of the game’s expected outcome, while variability could indicate that certain players perform better when the odds are either in or against their favor.
 
 The Shot Success by Possession Before Shot plot examines how possession changes prior to the shot influence success. It may show whether a player is more likely to score following specific possession scenarios, such as a defensive rebound or steal, offering insights into the flow and rhythm that set up successful shots.
-```{r explore5}
+
+```{r explore5, echo=FALSE}
 # Plot shot success by win probability
 ggplot(clutch_data, aes(x = win_prob, y = shot_success, color = shooter)) +
   geom_point() +
@@ -151,8 +166,10 @@ ggplot(clutch_data, aes(x = possession_before, y = shot_success, color = shooter
 ```
 
 6. Feature Plot:
+
 The density plots for each predictor variable allow for comparison between successful and failed shots across features like score difference, time remaining, and win probability. Peaks in the density plots for successful shots can reveal favorable conditions that correlate with higher shot success rates. This plot enables a nuanced understanding of the conditions under which players are most effective, helping to inform situational strategies based on these factors.
-```{r feature}
+
+```{r feature, echo=FALSE}
 # Prepare the dataset for feature plot
 # Convert shot_success to a factor if it’s not already
 clutch_data$shot_success <- as.factor(clutch_data$shot_success)
@@ -174,11 +191,48 @@ featurePlot(
 )
 ```
 
-These EDA plots provided a foundation for selecting variables for model training, helping to capture essential aspects of player performance in clutch situations.
+7. Correlation Plot:
 
+The correlation plot shows the relationships among the numeric predictors used in the regression model for predicting clutch shot success. 
+
+```{r corrplot, echo=FALSE}
+# Select predictors and the response variable
+predictors <- clutch_data %>%
+  select(score_diff, secs_remaining, attendance, naive_win_prob, 
+         home_favored_by, total_line, home_time_out_remaining, 
+         away_time_out_remaining, win_prob)
+
+predictors <- na.omit(predictors)
+
+# Compute the correlation matrix
+cor_matrix <- cor(predictors, use = "complete.obs")
+
+library(ggcorrplot)
+
+# Plot using ggcorrplot
+ggcorrplot(cor_matrix, lab = TRUE, colors = c("blue", "white", "red"))
+```
+
+Key observations from the correlation plot include:
+
+High Correlation:
+
+win_prob and naive_win_prob: These variables have a high positive correlation (around 0.95), indicating potential redundancy, as both are likely capturing similar aspects of game state.
+score_diff and win_prob: There is a strong positive correlation (approximately 0.9), suggesting that as the score difference increases, the probability of winning also rises, which is expected in close-game situations.
+
+Given the high correlations among some predictors, specifically win_prob and naive_win_prob, and win_prob with score_diff, multicollinearity could be an issue. High multicollinearity may inflate standard errors in regression models, potentially making it challenging to determine the individual effect of each predictor.
+
+To address this:
+Consider Removing Redundant Variables: Since win_prob and naive_win_prob are highly correlated, it may be beneficial to drop "win_prob" to simplify the model and reduce multicollinearity.
+
+To sum up, these EDA plots provided a foundation for selecting variables for model training, helping to capture essential aspects of player performance in clutch situations.
+
+
+## Method & Result
 ### Model Training and Model Comparison
 Multiple machine learning models were trained to predict shot success in clutch moments, specifically in the last five minutes of a close game. These models included Logistic Regression, Ridge Regression, Support Vector Machine (SVM), Random Forest, Gradient Boosting Machine (GBM), and k-Nearest Neighbors (kNN). Each model was evaluated on performance metrics such as Accuracy, Kappa, Sensitivity (true positive rate), Specificity (true negative rate), AUC (Area Under the Curve), and F1 Score to assess its ability to distinguish between successful and unsuccessful shots under high-pressure scenarios.
-```{r pressure, echo=TRUE}
+
+```{r pressure, warning = FALSE, echo=FALSE}
 # Load necessary libraries
 library(caret)
 library(pROC)
@@ -190,6 +244,9 @@ clutch_data <- subset(clutch_data, shooter != "Caleb Furst")
 # Ensure outcome variable and shooter are factors, rename levels for clarity
 clutch_data$shot_success <- factor(clutch_data$shot_success, levels = c(0, 1), labels = c("Fail", "Success"))
 clutch_data$shooter <- as.factor(clutch_data$shooter)
+clutch_data$referees <- as.factor(clutch_data$referees)
+clutch_data$arena <- as.factor(clutch_data$arena)
+
 
 # Remove any rows with missing values in the entire dataset
 clutch_data <- na.omit(clutch_data)
@@ -227,7 +284,8 @@ calculate_metrics <- function(model, test_data, positive_class = "Success") {
 # Specify predictor formula using the selected features
 predictors <- shot_success ~ score_diff + secs_remaining + attendance + naive_win_prob +
                             home_favored_by + total_line + home_time_out_remaining +
-                            away_time_out_remaining + win_prob + shooter
+                            away_time_out_remaining + win_prob + 
+                            shooter + referees + arena
 
 # Train Models and Calculate Metrics
 
@@ -285,35 +343,60 @@ results <- data.frame(
 print(results)
 
 ```
-Logistic Regression and Ridge Regression: These linear models offered baseline performance, with accuracies around 50-55.6%. While these models are simple and interpretable, their performance was relatively lower compared to non-linear models, suggesting limitations in capturing the complexity of clutch-time shot success.
 
-Support Vector Machine (SVM): The SVM model, using a Radial Basis Function kernel, emerged as the top performer with an accuracy of 66.7%. It also scored high in AUC and F1 Score, indicating a strong balance between sensitivity and specificity. SVM's performance suggests it effectively handles non-linear patterns in the data, making it well-suited for this application.
+Accuracy: Random Forest has the highest accuracy (0.6667), followed by Ridge Regression and GBM (0.6111 each). SVM has the lowest accuracy (0.4444).
 
-Random Forest and GBM: These ensemble models achieved competitive accuracy rates (61-66.7%) and demonstrated robustness across different game situations. Although their performance was close to SVM, their slightly lower composite scores resulted in their ranking below SVM.
+Kappa: Cohen’s Kappa indicates the consistency of the model predictions with the actual outcomes. Random Forest has the highest Kappa (0.3415), while SVM has a negative Kappa (-0.125), suggesting it performs worse than random guessing.
 
-k-Nearest Neighbors (kNN): kNN’s performance was relatively lower, indicating that its simple distance-based approach was less effective in capturing the nuanced conditions of shot success.
+Sensitivity (Recall): Random Forest has the highest sensitivity (0.750), indicating it performs well in identifying positive cases, while KNN has the lowest sensitivity (0.250).
+
+Specificity: KNN shows the highest specificity (0.7), meaning it better identifies negative cases, though its sensitivity is low. Logistic Regression and Random Forest have lower specificity values (0.4 and 0.6, respectively).
+
+AUC (Area Under the Curve): SVM has the highest AUC (0.700), suggesting it has a relatively good performance in distinguishing between classes. KNN follows with an AUC of 0.6813.
+
+F1 Score: Random Forest has the highest F1 Score (0.6667), indicating a good balance between precision and recall. SVM and KNN have lower F1 Scores (0.375 and 0.3077, respectively).
+
+Summary:
+
+- Best Overall Model: Based on the metrics, Random Forest is the top-performing model with high accuracy, Kappa, sensitivity, and F1 Score.
+
+- Highest AUC: SVM has the highest AUC, making it suitable for tasks that prioritize distinguishing between classes rather than pure accuracy.
+
+- Trade-offs: KNN has high specificity and AUC but lower sensitivity, indicating it is effective at avoiding false positives but may miss actual positives.
+
+For predicting NCAA men's basketball players' performance in clutch situations, Random Forest might be the most reliable choice based on overall performance, though SVM’s high AUC could be useful for nuanced classification tasks.
+
 
 ### Selecting the Best Model
-Metrics were normalized and weighted to calculate a Composite Score, providing an overall performance measure. Weights were assigned to Accuracy (30%), AUC (40%), and F1 Score (30%) to balance precision and predictive power. Based on the composite score, SVM ranked the highest, followed by Random Forest and GBM, making SVM the preferred model for player recommendations.
-```{r bestmodel}
+Metrics were normalized and weighted to calculate a Composite Score, providing an overall performance measure. Weights were assigned to Accuracy (25%), AUC (25%), F1 Score (20%), Sensitivity (15%), Specificity (10%), and Cohen’s Kappa (10%) to balance precision and predictive power. 
+
+For each model, a composite score is computed by multiplying each normalized metric by its weight and summing the results. This formula integrates both normalized and original metric values to balance model strengths and weaknesses across several dimensions. Models are then sorted by their composite scores, from highest to lowest, to determine the overall ranking. The model with the highest composite score is chosen as the "Best Model."
+
+```{r bestmodel, warning = FALSE, echo=FALSE}
 # Normalize metrics for comparison
 results$Accuracy_norm <- results$Accuracy / max(results$Accuracy)
 results$AUC_norm <- results$AUC / max(results$AUC)
 results$F1_Score_norm <- results$F1_Score / max(results$F1_Score)
 
-# Assign weights for composite scoring (adjust these as needed)
-weight_accuracy <- 0.3
-weight_auc <- 0.4
-weight_f1 <- 0.3
+# Assign new weights
+weight_accuracy <- 0.25
+weight_auc <- 0.25
+weight_f1 <- 0.20
+weight_sensitivity <- 0.15
+weight_specificity <- 0.10
+weight_kappa <- 0.05
 
-# Calculate composite score
+# Calculate the new composite score
 results$Composite_Score <- (results$Accuracy_norm * weight_accuracy) + 
                            (results$AUC_norm * weight_auc) + 
-                           (results$F1_Score_norm * weight_f1)
+                           (results$F1_Score_norm * weight_f1) +
+                           (results$Sensitivity * weight_sensitivity) +
+                           (results$Specificity * weight_specificity) +
+                           (results$Kappa * weight_kappa)
 
-# Sort by Composite_Score to find the best model
+# Sort by the new composite score
 results <- results[order(-results$Composite_Score), ]
-print("Ranked Models by Composite Score:")
+print("Ranked Models by New Composite Score:")
 print(results)
 
 # Select the best model based on highest composite score
@@ -322,15 +405,22 @@ print("Best Model:")
 print(best_model)
 
 ```
-With its superior composite score, SVM was selected as the final model to drive recommendations. Its high accuracy and sensitivity to game-specific variables make it effective for identifying players with high shot success probabilities in clutch situations.
 
-The Model Training and Comparison section shows that SVM outperformed other models, effectively predicting shot outcomes based on game conditions and player attributes. The structured comparison of models provides a clear rationale for selecting SVM, ensuring the recommendation system is backed by robust analysis and reliable metrics.
+The Random Forest model ranks highest with a composite score of approximately 0.8315, indicating it performs well across the various metrics when the weights are applied. This suggests Random Forest is the most balanced model, achieving strong performance in terms of accuracy, AUC, F1 Score, sensitivity, and other factors.
+
+Ridge Regression and GBM follow with scores of around 0.76, indicating they are also strong performers but slightly behind Random Forest based on this scoring method. They still balance well across the metrics, especially in accuracy and sensitivity.
+
+According to the composite score, the Random Forest model is the best choice overall, as it demonstrates strong, balanced performance across all key metrics, making it suitable for situations where a robust and versatile model is needed. However, Ridge Regression and GBM also show promise as alternative choices, especially if a particular aspect of their performance aligns with specific needs in the application.
+
+
 
 ### Selecting the Optimal Player
-The Optimal Player section analyzes the players' clutch-time shot performance to determine the best candidate for taking the final shot in high-stakes scenarios. The Support Vector Machine (SVM) model, selected for its superior accuracy and ability to handle non-linear data patterns, was used to predict each player’s likelihood of scoring under pressure.
+The Optimal Player section analyzes each player's performance under clutch-time conditions to identify the best candidate for taking the final shot in high-stakes scenarios. This analysis utilizes the Random Forest (RF) model, chosen for its high accuracy and capability to handle complex, non-linear patterns in the data.
 
-The SVM model evaluated each player based on situational game factors such as score difference, time remaining, win probability, and other predictors. By assessing these conditions, the model calculated the probability of a successful shot for each player, ultimately identifying players with consistently high success rates in clutch scenarios.
-```{r bestplayer}
+The RF model evaluated each player's likelihood of scoring based on situational factors, such as score difference, time remaining, win probability, and other game-specific variables. By assessing these conditions, the model calculated the probability of a successful shot for each player, identifying the most reliable performers under clutch scenarios.
+
+The table below illustrates the predicted success probabilities for each player given different score differences:
+```{r bestplayer, warning = FALSE, echo=FALSE}
 # Load necessary libraries
 library(caret)
 library(pROC)
@@ -374,18 +464,20 @@ trainIndex <- createDataPartition(clutch_data$shot_success, p = .8, list = FALSE
 train_data <- clutch_data[trainIndex, ]
 test_data <- clutch_data[-trainIndex, ]
 
-# Define the formula for the SVM model
+# Define the formula for the RF model
+# Specify predictor formula using the selected features
 predictors <- shot_success ~ score_diff + secs_remaining + attendance + naive_win_prob +
                             home_favored_by + total_line + home_time_out_remaining +
-                            away_time_out_remaining + win_prob + shooter
+                            away_time_out_remaining + win_prob + 
+                            shooter + referees + arena
 
-# Train the SVM model
+# Random Forest
 set.seed(123)
-svm_model <- train(predictors, data = train_data, method = "svmRadial", tuneLength = 10,
-                   trControl = trainControl(method = "cv", number = 5, classProbs = TRUE))
+rf_model <- train(predictors, data = train_data, method = "rf", tuneLength = 5)
+rf_metrics <- calculate_metrics(rf_model, test_data)
 
 # Calculate probabilities for each player in the test data
-test_data$predicted_prob <- predict(svm_model, test_data, type = "prob")[, "Success"]
+test_data$predicted_prob <- predict(rf_model, test_data, type = "prob")[, "Success"]
 
 # Choose the player with the highest predicted probability in each game situation
 best_player_per_situation <- test_data %>%
@@ -395,12 +487,17 @@ best_player_per_situation <- test_data %>%
   ungroup()
 
 print(best_player_per_situation)
-
 ```
 
-Based on the SVM model's predictions, Zach Eedy consistently achieved high probabilities of successful shots across various game situations. His performance data, when assessed against key predictors, demonstrated his reliability and scoring ability under pressure. Edey’s success rate in clutch-time moments set him apart from other players, making him the logical choice for critical, game-deciding shots. His consistency under varied game situations, as demonstrated by the SVM model’s analysis, validated him as the optimal player for this role.
+Based on the RF model's predictions, Zach Edey consistently achieves high probabilities of successful shots across various score differentials, indicating his reliability in clutch situations:
 
-The selection of Zach Edey is grounded in objective data analysis, showing that his success rate aligns with conditions typical of clutch scenarios (e.g., close score differences, limited time remaining). This data-backed approach ensures that the decision is not based on intuition alone but on statistical evidence of his ability to perform under pressure.
+High Probabilities Under Key Conditions: Edey's success probabilities are strong both when his team is tied or leading, with his highest probability (0.846) occurring when the team leads by 2 points. This suggests he performs well in scenarios where maintaining or extending a lead is critical.
+
+Performance When Tied or Trailing: When the score is tied (score difference of 0), Edey still shows competitive probabilities (0.748), demonstrating his ability to remain effective under pressure.
+
+Comparison with Other Players: Mason Gillis, with lower probabilities (e.g., 0.258 when trailing by 1), and Fletcher Loyer, who appears only once, lack the consistency that Edey shows. This makes Edey the more dependable choice for high-stakes shots.
+
+In summary, the selection of Zach Edey as the preferred shooter in clutch-time scenarios is grounded in data-driven analysis. The RF model’s assessment shows that Edey's shot success probabilities align well with conditions typical of clutch situations (e.g., close score differences, limited time remaining). His consistency and high success rates make him the optimal choice, providing statistical backing for decisions that could otherwise be based solely on intuition.
 
 ## Conclusion
-This analysis highlights Zach Edey as the optimal player for Purdue Men’s Basketball in clutch-time situations, based on a predictive model that captures game-specific and player-specific attributes. The SVM model, with its high accuracy and adaptability to non-linear patterns, proved ideal for recommending players in high-pressure moments. This project demonstrates the value of machine learning in sports analytics, showcasing how data can enhance decision-making in critical scenarios.
+The Random Forest model, with its high composite score and effective handling of non-linear patterns, is well-suited for predicting shot success in Purdue Men’s Basketball’s clutch situations. Zach Edey’s selection as the optimal player for critical shots is grounded in data-driven evidence, supported by his consistent shot success across high-stakes scenarios. This analysis demonstrates the value of machine learning in sports decision-making, showing how data-backed insights can enhance strategic choices in critical game moments.
